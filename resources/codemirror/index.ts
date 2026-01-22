@@ -487,8 +487,11 @@ function buildExtensions(cfg: EditorInitConfig, textarea: HTMLTextAreaElement, o
     baseKeymap.push(...lintKeymap);
   }
   if (featureExtensions.includes('emmet')) {
-    baseKeymap.push({ key: 'Mod-e', run: expandAbbreviation });
-    baseKeymap.push({ key: 'Mod-Shift-e', run: wrapWithAbbreviation });
+    const saveContinueKey = (cfg.keymap?.save_continue || '').toLowerCase();
+    const expandKey = saveContinueKey === 'mod-e' ? 'Ctrl-Alt-e' : 'Mod-e';
+    const wrapKey = saveContinueKey === 'mod-e' ? 'Ctrl-Alt-Shift-e' : 'Mod-Shift-e';
+    baseKeymap.push({ key: expandKey, run: expandAbbreviation });
+    baseKeymap.push({ key: wrapKey, run: wrapWithAbbreviation });
   }
   extensions.push(keymap.of(baseKeymap));
 

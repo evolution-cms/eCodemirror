@@ -91,7 +91,7 @@
     ],
     'extensions' => [
         'search' => ['enabled' => true],
-        'emmet' => ['enabled' => false],
+        'emmet' => ['enabled' => true],
         'lint' => ['enabled' => false],
     ],
     'protected_keys' => [

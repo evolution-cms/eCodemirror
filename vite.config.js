@@ -5,7 +5,7 @@ export default defineConfig({
   publicDir: false,
   build: {
     outDir: 'public/dist',
-    emptyOutDir: false,
+    emptyOutDir: true,
     manifest: 'manifest.json',
     lib: {
       entry: path.resolve('resources/codemirror/index.ts'),

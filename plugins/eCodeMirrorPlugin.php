@@ -93,6 +93,27 @@ if (!function_exists('eCodeMirror_contentTypeLanguage')) {
     }
 }
 
+if (!function_exists('eCodeMirror_shouldInitResource')) {
+    function eCodeMirror_shouldInitResource(array $content): bool
+    {
+        $postedEditor = $_POST['which_editor'] ?? '';
+        $useEditor = (bool)evo()->getConfig('use_editor');
+        $systemEditor = $useEditor ? (string)evo()->getConfig('which_editor') : 'none';
+        $richtext = isset($content['richtext']) ? (bool)$content['richtext'] : false;
+
+        $contentType = $content['contentType'] ?? null;
+        if (is_string($contentType)) {
+            $contentType = strtolower(trim($contentType));
+            if ($contentType !== 'text/html') {
+                $richtext = false;
+            }
+        }
+
+        $resolvedEditor = $postedEditor ?: (isset($content['id']) ? ($richtext ? $systemEditor : 'none') : $systemEditor);
+        return $resolvedEditor === 'none';
+    }
+}
+
 if (!function_exists('eCodeMirror_buildEditorConfig')) {
     function eCodeMirror_buildEditorConfig(
         string $selector,
@@ -466,11 +487,10 @@ Event::listen('evolution.OnTVFormRender', function () {
 
 Event::listen('evolution.OnDocFormRender', function () {
     $settings = config('cms.settings.eCodeMirror', []);
-    if ((string)evo()->getConfig('which_editor') !== 'eCodeMirror') {
+    $content = $GLOBALS['content'] ?? [];
+    if (is_array($content) && !eCodeMirror_shouldInitResource($content)) {
         return '';
     }
-
-    $content = $GLOBALS['content'] ?? [];
     if (is_array($content) && ($content['type'] ?? '') === 'reference') {
         return '';
     }
@@ -542,4 +562,19 @@ Event::listen('evolution.OnModFormRender', function () {
     $editors = array_values(array_filter($editors));
 
     return eCodeMirror_renderEditors($editors, $settings);
+});
+
+Event::listen('evolution.OnManagerPageRender', function () {
+    $action = $_REQUEST['a'] ?? null;
+    $mode = $_REQUEST['mode'] ?? null;
+    if ((int)$action !== 31 || ($mode !== 'view' && $mode !== 'edit')) {
+        return '';
+    }
+
+    $settings = config('cms.settings.eCodeMirror', []);
+    $systemOverrides = eCodeMirror_getSystemOverrides();
+    $selector = eCodeMirror_normalizeSelector('content');
+    $editor = eCodeMirror_buildEditorConfig($selector, 'file_edit', [], $settings, $systemOverrides, null);
+
+    return $editor ? eCodeMirror_renderEditors([$editor], $settings) : '';
 });
