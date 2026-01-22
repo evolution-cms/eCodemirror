@@ -1,15 +1,12 @@
 import './style.css';
 
 import { EditorState, EditorSelection, RangeSet, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
-import { EditorView, Decoration, ViewPlugin, keymap, highlightActiveLine, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
-import { defaultKeymap, indentWithTab } from '@codemirror/commands';
-import { history, historyKeymap } from '@codemirror/history';
-import { indentOnInput, syntaxHighlighting, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language';
-import { defaultHighlightStyle } from '@codemirror/highlight';
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/closebrackets';
-import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
+import { EditorView, Decoration, ViewPlugin, keymap, highlightActiveLine, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, lineNumbers, highlightActiveLineGutter, gutter, GutterMarker } from '@codemirror/view';
+import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands';
+import { indentOnInput, syntaxHighlighting, bracketMatching, foldGutter, foldKeymap, indentUnit, defaultHighlightStyle } from '@codemirror/language';
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
-import { gutter, GutterMarker } from '@codemirror/gutter';
+import { linter, lintGutter, lintKeymap, Diagnostic } from '@codemirror/lint';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
 import { javascript } from '@codemirror/lang-javascript';
@@ -17,6 +14,7 @@ import { json } from '@codemirror/lang-json';
 import { php } from '@codemirror/lang-php';
 import { sql } from '@codemirror/lang-sql';
 import { oneDark, oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
+import { abbreviationTracker, emmetCompletionSource, expandAbbreviation, wrapWithAbbreviation } from '@emmetio/codemirror6-plugin';
 
 type EditorInitConfig = {
   id: string;
@@ -211,6 +209,54 @@ function isTruthy(value: any): boolean {
   return value === true || value === 1 || value === '1' || value === 'true';
 }
 
+function parseJsonErrorPosition(message: string): { line?: number; column?: number; position?: number } {
+  const posMatch = message.match(/position\s+(\d+)/i);
+  if (posMatch) {
+    return { position: Number(posMatch[1]) };
+  }
+  const lineColMatch = message.match(/line\s+(\d+)\s+column\s+(\d+)/i);
+  if (lineColMatch) {
+    return { line: Number(lineColMatch[1]), column: Number(lineColMatch[2]) };
+  }
+  return {};
+}
+
+function jsonLinter() {
+  return linter((view): Diagnostic[] => {
+    const doc = view.state.doc;
+    const text = doc.toString();
+    if (!text.trim()) {
+      return [];
+    }
+    try {
+      JSON.parse(text);
+      return [];
+    } catch (err: any) {
+      const message = err instanceof Error ? err.message : 'Invalid JSON';
+      const info = parseJsonErrorPosition(message);
+      const length = doc.length;
+      let pos = 0;
+      if (typeof info.position === 'number' && Number.isFinite(info.position)) {
+        pos = clamp(info.position, 0, length);
+      } else if (typeof info.line === 'number' && typeof info.column === 'number') {
+        const lineNumber = clamp(info.line, 1, doc.lines);
+        const line = doc.line(lineNumber);
+        pos = clamp(line.from + Math.max(0, info.column - 1), line.from, line.to);
+      }
+      const from = pos;
+      const to = Math.min(pos + 1, length);
+      return [
+        {
+          from,
+          to,
+          severity: 'error',
+          message,
+        },
+      ];
+    }
+  });
+}
+
 function themeExtension(name: string | undefined, options: Record<string, any>) {
   const fontSize = options.fontSize ? `${options.fontSize}px` : null;
   const lineHeight = options.lineHeight ? `${options.lineHeight}` : null;
@@ -348,19 +394,13 @@ function buildExtensions(cfg: EditorInitConfig, textarea: HTMLTextAreaElement, o
     extensions.push(highlightSelectionMatches());
   }
   if (featureExtensions.includes('emmet')) {
-    const emmetExt = (window as any).eCodeMirrorEmmet;
-    if (typeof emmetExt === 'function') {
-      extensions.push(emmetExt());
-    } else {
-      console.warn('eCodeMirror: emmet extension requested but not available.');
-    }
+    extensions.push(abbreviationTracker());
+    extensions.push(autocompletion({ override: [emmetCompletionSource] }));
   }
   if (featureExtensions.includes('lint')) {
-    const lintExt = (window as any).eCodeMirrorLint;
-    if (typeof lintExt === 'function') {
-      extensions.push(lintExt());
-    } else {
-      console.warn('eCodeMirror: lint extension requested but not available.');
+    extensions.push(lintGutter());
+    if ((cfg.language || '').toLowerCase() === 'json') {
+      extensions.push(jsonLinter());
     }
   }
   if (featureExtensions.includes('modxOverlay')) {
@@ -417,6 +457,13 @@ function buildExtensions(cfg: EditorInitConfig, textarea: HTMLTextAreaElement, o
   ];
   if (featureExtensions.includes('search')) {
     baseKeymap.push(...searchKeymap);
+  }
+  if (featureExtensions.includes('lint')) {
+    baseKeymap.push(...lintKeymap);
+  }
+  if (featureExtensions.includes('emmet')) {
+    baseKeymap.push({ key: 'Mod-e', run: expandAbbreviation });
+    baseKeymap.push({ key: 'Mod-Shift-e', run: wrapWithAbbreviation });
   }
   extensions.push(keymap.of(baseKeymap));
 

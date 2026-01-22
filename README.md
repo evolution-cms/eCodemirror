@@ -76,7 +76,7 @@ Build output:
 ## Notes
 - Assets are cache‑busted via `?v=<mtime>` or `?v=<config version>`.
 - Legacy CM5 plugin must be disabled when enabling eCodeMirror.
-- Optional extensions: Emmet/lint can be wired via `window.eCodeMirrorEmmet()` / `window.eCodeMirrorLint()` if you want to plug in custom CM6 extensions.
+- Emmet is enabled via profile extensions (`emmet`), lint currently provides JSON validation when `lint` is enabled.
 
 ## License
 GPL-2.0
