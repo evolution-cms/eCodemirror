@@ -272,18 +272,30 @@ if (!function_exists('eCodeMirror_renderEditors')) {
         if (is_file($manifestPath)) {
             $manifest = json_decode((string)@file_get_contents($manifestPath), true);
             if (is_array($manifest)) {
+                $entryFile = null;
+                $cssFromManifest = null;
                 foreach ($manifest as $entry) {
                     if (!is_array($entry)) {
                         continue;
                     }
-                    if (!empty($entry['isEntry']) && !empty($entry['file'])) {
-                        $jsFile = $entry['file'];
-                        if (isset($entry['css'][0])) {
-                            $cssFile = $entry['css'][0];
+                    if (!empty($entry['file']) && is_string($entry['file'])) {
+                        if ($cssFromManifest === null && substr($entry['file'], -4) === '.css') {
+                            $cssFromManifest = $entry['file'];
                         }
-                        $useManifest = true;
-                        break;
                     }
+                    if ($entryFile === null && !empty($entry['isEntry']) && !empty($entry['file'])) {
+                        $entryFile = $entry['file'];
+                        if (isset($entry['css'][0])) {
+                            $cssFromManifest = $entry['css'][0];
+                        }
+                    }
+                }
+                if ($entryFile !== null) {
+                    $jsFile = $entryFile;
+                    if ($cssFromManifest !== null) {
+                        $cssFile = $cssFromManifest;
+                    }
+                    $useManifest = true;
                 }
             }
         }

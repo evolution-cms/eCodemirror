@@ -72,7 +72,7 @@ Build output:
 - `public/dist/eCodeMirror.css`
 
 ## Notes
-- Assets are cache‑busted via Vite manifest (hashed filenames) or `?v=<mtime>` fallback.
+- Assets are cache‑busted via `?v=<mtime>` fallback.
 - Legacy CM5 plugin must be disabled when enabling eCodeMirror.
 - Emmet is enabled via profile extensions (`emmet`), lint currently provides JSON validation when `lint` is enabled.
 - For resource content, eCodeMirror activates only when richtext is disabled (no RTE), matching legacy behavior.

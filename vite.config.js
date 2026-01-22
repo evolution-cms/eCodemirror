@@ -6,22 +6,21 @@ export default defineConfig({
   build: {
     outDir: 'public/dist',
     emptyOutDir: true,
-    manifest: 'manifest.json',
     lib: {
       entry: path.resolve('resources/codemirror/index.ts'),
       name: 'eCodeMirror',
       formats: ['iife'],
-      fileName: () => 'eCodeMirror.[hash].js'
+      fileName: () => 'eCodeMirror.js'
     },
     rollupOptions: {
       output: {
-        entryFileNames: 'eCodeMirror.[hash].js',
-        chunkFileNames: 'eCodeMirror.[hash].js',
+        entryFileNames: 'eCodeMirror.js',
+        chunkFileNames: 'assets/[name].js',
         assetFileNames: ({ name }) => {
           if (name && name.endsWith('.css')) {
-            return 'eCodeMirror.[hash].css';
+            return 'eCodeMirror.css';
           }
-          return 'assets/[name]-[hash][extname]';
+          return 'assets/[name][extname]';
         }
       }
     }
