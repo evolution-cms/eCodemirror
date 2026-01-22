@@ -1,6 +1,6 @@
 import './style.css';
 
-import { EditorState, EditorSelection, RangeSet, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
+import { EditorState, EditorSelection, RangeSet, StateEffect, StateField } from '@codemirror/state';
 import { EditorView, Decoration, ViewPlugin, keymap, highlightActiveLine, drawSelection, lineNumbers, highlightActiveLineGutter, gutter, GutterMarker } from '@codemirror/view';
 import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands';
 import { indentOnInput, syntaxHighlighting, bracketMatching, foldGutter, foldKeymap, indentUnit, defaultHighlightStyle } from '@codemirror/language';
@@ -407,7 +407,7 @@ function expandSnippetAtCursor(view: EditorView, snippets: Record<string, string
 }
 
 function buildModxDecorations(doc: string) {
-  const builder = new RangeSetBuilder<Decoration>();
+  const decorations: any[] = [];
   const ranges: Array<{ from: number; to: number; className: string }> = [];
   for (const pattern of modxPatterns) {
     pattern.regex.lastIndex = 0;
@@ -426,9 +426,9 @@ function buildModxDecorations(doc: string) {
     return a.className < b.className ? -1 : a.className > b.className ? 1 : 0;
   });
   for (const range of ranges) {
-    builder.add(range.from, range.to, Decoration.mark({ class: range.className }));
+    decorations.push(Decoration.mark({ class: range.className }).range(range.from, range.to));
   }
-  return builder.finish();
+  return Decoration.set(decorations, true);
 }
 
 function modxOverlayExtension() {
