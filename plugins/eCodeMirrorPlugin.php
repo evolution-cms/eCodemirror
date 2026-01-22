@@ -99,7 +99,7 @@ if (!function_exists('eCodeMirror_shouldInitResource')) {
         $postedEditor = $_POST['which_editor'] ?? '';
         $useEditor = (bool)evo()->getConfig('use_editor');
         $systemEditor = $useEditor ? (string)evo()->getConfig('which_editor') : 'none';
-        $richtext = isset($content['richtext']) ? (bool)$content['richtext'] : false;
+        $richtext = array_key_exists('richtext', $content) ? (bool)$content['richtext'] : null;
 
         $contentType = $content['contentType'] ?? null;
         if (is_string($contentType)) {
@@ -109,7 +109,11 @@ if (!function_exists('eCodeMirror_shouldInitResource')) {
             }
         }
 
-        $resolvedEditor = $postedEditor ?: (isset($content['id']) ? ($richtext ? $systemEditor : 'none') : $systemEditor);
+        if ($richtext === null) {
+            $richtext = $useEditor && $systemEditor !== 'none';
+        }
+
+        $resolvedEditor = $postedEditor ?: (array_key_exists('id', $content) ? ($richtext ? $systemEditor : 'none') : $systemEditor);
         return $resolvedEditor === 'none';
     }
 }
@@ -484,7 +488,10 @@ Event::listen('evolution.OnTVFormRender', function () {
 Event::listen('evolution.OnDocFormRender', function () {
     $settings = config('cms.settings.eCodeMirror', []);
     $content = $GLOBALS['content'] ?? [];
-    if (is_array($content) && !eCodeMirror_shouldInitResource($content)) {
+    if (!is_array($content)) {
+        $content = [];
+    }
+    if (!eCodeMirror_shouldInitResource($content)) {
         return '';
     }
     if (is_array($content) && ($content['type'] ?? '') === 'reference') {
