@@ -338,10 +338,6 @@ if (!function_exists('eCodeMirror_renderEditors')) {
     }
 }
 
-Event::listen('evolution.OnRichTextEditorRegister', function () {
-    return 'eCodeMirror';
-});
-
 Event::listen('evolution.OnInterfaceSettingsRender', function () {
     $settings = config('cms.settings.eCodeMirror', []);
     $profiles = $settings['profiles'] ?? [];

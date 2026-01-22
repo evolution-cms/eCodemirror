@@ -25,8 +25,6 @@ php artisan vendor:publish --tag=ecodemirror-assets
 ## What gets published
 - Config (single source of truth):
   - `core/custom/config/cms/settings/eCodeMirror.php`
-- Optional default editor:
-  - `core/custom/config/cms/settings/which_editor.php`
 - Assets:
   - `public/assets/plugins/eCodeMirror/dist/eCodeMirror.js`
   - `public/assets/plugins/eCodeMirror/dist/eCodeMirror.css`
@@ -78,6 +76,7 @@ Build output:
 - Legacy CM5 plugin must be disabled when enabling eCodeMirror.
 - Emmet is enabled via profile extensions (`emmet`), lint currently provides JSON validation when `lint` is enabled.
 - For resource content, eCodeMirror activates only when richtext is disabled (no RTE), matching legacy behavior.
+- If you previously published `core/custom/config/cms/settings/which_editor.php`, remove it to avoid forcing eCodeMirror as the RTE.
 
 ## License
 GPL-2.0

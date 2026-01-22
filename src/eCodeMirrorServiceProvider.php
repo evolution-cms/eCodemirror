@@ -26,10 +26,6 @@ class eCodeMirrorServiceProvider extends ServiceProvider
         ], 'ecodemirror-config');
 
         $this->publishes([
-            dirname(__DIR__) . '/config/which_editor.php' => config_path('cms/settings/which_editor.php', true),
-        ], 'ecodemirror-config');
-
-        $this->publishes([
             dirname(__DIR__) . '/public/dist' => public_path('assets/plugins/eCodeMirror/dist'),
         ], 'ecodemirror-assets');
     }
