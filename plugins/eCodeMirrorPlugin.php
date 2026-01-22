@@ -418,7 +418,12 @@ Event::listen('evolution.OnInterfaceSettingsRender', function () {
 });
 
 Event::listen('evolution.OnRichTextEditorInit', function ($params) {
-    if (!isset($params['editor']) || $params['editor'] !== 'eCodeMirror') {
+    $editorName = $params['editor'] ?? '';
+    if (!is_string($editorName)) {
+        return '';
+    }
+    $editorName = strtolower($editorName);
+    if ($editorName !== 'ecodemirror' && $editorName !== 'codemirror') {
         return '';
     }
 
