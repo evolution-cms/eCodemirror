@@ -107,18 +107,113 @@ function breakpointGutterExtension() {
 }
 
 const modxPatterns: Array<{ regex: RegExp; className: string }> = [
-  { regex: /`?\[\[[\s\S]*?\]\]/g, className: 'cm-modx-snippet' },
-  { regex: /`?\{\{[\s\S]*?\}\}/g, className: 'cm-modx-chunk' },
-  { regex: /`?\[\*[\s\S]*?\*\]/g, className: 'cm-modx-tv' },
-  { regex: /`?\[\+[\s\S]*?\+\]/g, className: 'cm-modx-placeholder' },
-  { regex: /`?\[![\s\S]*?!\]/g, className: 'cm-modx-snippet-nocache' },
-  { regex: /`?\[\([\s\S]*?\)\]/g, className: 'cm-modx-variable' },
-  { regex: /`?\[~[\s\S]*?~\]/g, className: 'cm-modx-url' },
-  { regex: /`?\[\^[\s\S]*?\^\]/g, className: 'cm-modx-config' },
-  { regex: /@[a-zA-Z_][\w-]*/g, className: 'cm-modx-binding' },
-  { regex: /&[^\s=]+=?/g, className: 'cm-modx-attribute' },
-  { regex: /`[^`\s=]+`/g, className: 'cm-modx-attribute-value' },
+  { regex: /`?\[\[[\s\S]*?\]\]/g, className: 'cm-modxSnippet' },
+  { regex: /`?\{\{[\s\S]*?\}\}/g, className: 'cm-modxChunk' },
+  { regex: /`?\[\*[\s\S]*?\*\]/g, className: 'cm-modxTv' },
+  { regex: /`?\[\+[\s\S]*?\+\]/g, className: 'cm-modxPlaceholder' },
+  { regex: /`?\[![\s\S]*?!\]/g, className: 'cm-modxSnippetNoCache' },
+  { regex: /`?\[\([\s\S]*?\)\]/g, className: 'cm-modxVariable' },
+  { regex: /`?\[~[\s\S]*?~\]/g, className: 'cm-modxUrl' },
+  { regex: /`?\[\^[\s\S]*?\^\]/g, className: 'cm-modxConfig' },
+  { regex: /@(?:inherit|select|eval|directory|chunk|document|file|code)\b/gi, className: 'cm-modxBinding' },
+  { regex: /@INCLUDE\b/g, className: 'cm-modxBinding' },
+  { regex: /@[a-z][\w]*/g, className: 'cm-blade-directive' },
+  { regex: /&[^\s=]+=?/g, className: 'cm-modxAttribute' },
+  { regex: /`[^`\s=]+`/g, className: 'cm-modxAttributeValue' },
 ];
+
+function normalizeSnippetMap(input: any): Record<string, string> {
+  if (!input) {
+    return {};
+  }
+  const map: Record<string, string> = {};
+  if (Array.isArray(input)) {
+    for (const entry of input) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const key = typeof entry.label === 'string' ? entry.label : typeof entry.key === 'string' ? entry.key : '';
+      const value = typeof entry.value === 'string' ? entry.value : typeof entry.body === 'string' ? entry.body : '';
+      if (key && value) {
+        map[key] = value;
+      }
+    }
+    return map;
+  }
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === 'string' && key) {
+      map[key] = value;
+    }
+  }
+  return map;
+}
+
+function createSnippetCompletions(snippets: Record<string, string>) {
+  const completions: Array<{ label: string; type: string; detail: string; apply: string }> = [];
+  for (const [label, body] of Object.entries(snippets)) {
+    completions.push({
+      label,
+      type: 'snippet',
+      detail: 'MODX/Blade',
+      apply: body,
+    });
+  }
+  return completions;
+}
+
+function createSnippetCompletionSource(snippets: Record<string, string>) {
+  const completions = createSnippetCompletions(snippets);
+  if (completions.length === 0) {
+    return null;
+  }
+
+  return (context: any) => {
+    const word = context.matchBefore(/[!@]?[A-Za-z][\w-]*/);
+    if (!word) {
+      return null;
+    }
+    if (word.from === word.to && !context.explicit) {
+      return null;
+    }
+    const prefix = word.text;
+    const options = prefix ? completions.filter((entry) => entry.label.startsWith(prefix)) : completions;
+    if (!options.length) {
+      return null;
+    }
+    return {
+      from: word.from,
+      options,
+      validFor: /[!@]?[A-Za-z][\w-]*/,
+    };
+  };
+}
+
+function expandSnippetAtCursor(view: EditorView, snippets: Record<string, string>) {
+  if (!snippets || Object.keys(snippets).length === 0) {
+    return false;
+  }
+  const { state } = view;
+  const selection = state.selection.main;
+  if (!selection.empty) {
+    return false;
+  }
+  const line = state.doc.lineAt(selection.head);
+  const before = line.text.slice(0, selection.head - line.from);
+  const match = /[!@]?[A-Za-z][\w-]*$/.exec(before);
+  if (!match) {
+    return false;
+  }
+  const key = match[0];
+  const snippet = snippets[key];
+  if (!snippet) {
+    return false;
+  }
+  const from = selection.head - key.length;
+  view.dispatch({
+    changes: { from, to: selection.head, insert: snippet },
+  });
+  return true;
+}
 
 function buildModxDecorations(doc: string) {
   const builder = new RangeSetBuilder<Decoration>();
@@ -369,6 +464,8 @@ function triggerManagerAction(action: string): boolean {
 function buildExtensions(cfg: EditorInitConfig, textarea: HTMLTextAreaElement, onFullscreen: (state?: boolean) => boolean) {
   const options = cfg.options || {};
   const extensions: any[] = [];
+  const emmetSnippets = normalizeSnippetMap(options.emmetSnippets || options.emmet_snippets || {});
+  const snippetCompletionSource = createSnippetCompletionSource(emmetSnippets);
 
   extensions.push(
     lineNumbers(),
@@ -420,7 +517,8 @@ function buildExtensions(cfg: EditorInitConfig, textarea: HTMLTextAreaElement, o
   }
   if (featureExtensions.includes('emmet')) {
     extensions.push(abbreviationTracker());
-    extensions.push(autocompletion({ override: [emmetCompletionSource] }));
+    const overrideSources = snippetCompletionSource ? [snippetCompletionSource, emmetCompletionSource] : [emmetCompletionSource];
+    extensions.push(autocompletion({ override: overrideSources }));
   }
   if (featureExtensions.includes('lint')) {
     extensions.push(lintGutter());
@@ -490,7 +588,13 @@ function buildExtensions(cfg: EditorInitConfig, textarea: HTMLTextAreaElement, o
     const saveContinueKey = (cfg.keymap?.save_continue || '').toLowerCase();
     const expandKey = saveContinueKey === 'mod-e' ? 'Ctrl-Alt-e' : 'Mod-e';
     const wrapKey = saveContinueKey === 'mod-e' ? 'Ctrl-Alt-Shift-e' : 'Mod-Shift-e';
-    baseKeymap.push({ key: expandKey, run: expandAbbreviation });
+    const expandHandler = (view: EditorView) => {
+      if (expandSnippetAtCursor(view, emmetSnippets)) {
+        return true;
+      }
+      return expandAbbreviation(view);
+    };
+    baseKeymap.push({ key: expandKey, run: expandHandler });
     baseKeymap.push({ key: wrapKey, run: wrapWithAbbreviation });
   }
   extensions.push(keymap.of(baseKeymap));

@@ -188,6 +188,10 @@ if (!function_exists('eCodeMirror_buildEditorConfig')) {
             $options = array_replace_recursive($options, $fieldOptions);
         }
 
+        if (isset($settings['emmet_snippets']) && is_array($settings['emmet_snippets'])) {
+            $options['emmetSnippets'] = $settings['emmet_snippets'];
+        }
+
         $extensions = $profiles[$profile]['extensions'] ?? [];
         $globalExtensions = $settings['extensions'] ?? [];
         $extensions = array_values(array_filter($extensions, function ($ext) use ($globalExtensions, $systemOverrides) {
