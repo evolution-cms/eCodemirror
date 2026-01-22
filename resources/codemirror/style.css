@@ -31,6 +31,8 @@ body.ecm-body-lock {
 .cm-modxConfig { color: #364fc7; font-weight: 600; }
 .cm-modxBinding { color: #495057; font-style: italic; }
 .cm-blade-directive { color: #5c7cfa; font-weight: 600; }
+.cm-blade-echo { color: #1971c2; border-bottom: 1px dotted rgba(25, 113, 194, 0.6); }
+.cm-blade-raw { color: #862e9c; border-bottom: 1px dotted rgba(134, 46, 156, 0.6); }
 .cm-modxAttribute { color: #f59f00; }
 .cm-modxAttributeValue { color: #5c940d; }
 

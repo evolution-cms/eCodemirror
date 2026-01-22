@@ -117,10 +117,201 @@ const modxPatterns: Array<{ regex: RegExp; className: string }> = [
   { regex: /`?\[\^[\s\S]*?\^\]/g, className: 'cm-modxConfig' },
   { regex: /@(?:inherit|select|eval|directory|chunk|document|file|code)\b/gi, className: 'cm-modxBinding' },
   { regex: /@INCLUDE\b/g, className: 'cm-modxBinding' },
+  { regex: /\{!![\s\S]*?!!\}/g, className: 'cm-blade-raw' },
+  { regex: /\{\{[\s\S]*?\}\}/g, className: 'cm-blade-echo' },
   { regex: /@[a-z][\w]*/g, className: 'cm-blade-directive' },
   { regex: /&[^\s=]+=?/g, className: 'cm-modxAttribute' },
   { regex: /`[^`\s=]+`/g, className: 'cm-modxAttributeValue' },
 ];
+
+type ModxTagMatch = {
+  type: 'Snippet' | 'SnippetNoCache' | 'Chunk' | 'Tv' | 'Placeholder' | 'Variable' | 'Url' | 'Config' | 'AttributeValue';
+  name: string;
+};
+
+function normalizeModxName(value: string): string {
+  return value.replace(/[\[\]\{\}\*\#\+\?\!\&\=\`\:]/g, '').trim();
+}
+
+function extractModxName(raw: string, type: ModxTagMatch['type']): string | null {
+  let text = raw.trim();
+  if (text.startsWith('`')) {
+    text = text.slice(1);
+  }
+  const stripWrap = (start: string, end: string) => {
+    if (text.startsWith(start) && text.endsWith(end)) {
+      return text.slice(start.length, text.length - end.length);
+    }
+    return text;
+  };
+
+  switch (type) {
+    case 'Snippet':
+      text = stripWrap('[[', ']]');
+      break;
+    case 'SnippetNoCache':
+      text = stripWrap('[!', '!]');
+      break;
+    case 'Chunk':
+      text = stripWrap('{{', '}}');
+      break;
+    case 'Tv':
+      text = stripWrap('[*', '*]');
+      break;
+    case 'Placeholder':
+      text = stripWrap('[+', '+]');
+      break;
+    case 'Variable':
+      text = stripWrap('[(', ')]');
+      break;
+    case 'Url':
+      text = stripWrap('[~', '~]');
+      break;
+    case 'Config':
+      text = stripWrap('[^', '^]');
+      break;
+    case 'AttributeValue':
+      text = stripWrap('`', '`');
+      if (text.startsWith('[')) {
+        return null;
+      }
+      break;
+    default:
+      break;
+  }
+
+  text = text.trim();
+  if (!text) {
+    return null;
+  }
+
+  if (type === 'Snippet' || type === 'SnippetNoCache' || type === 'Chunk') {
+    text = text.split('?')[0].trim();
+    text = text.split(/\s+/)[0].trim();
+  } else if (type !== 'AttributeValue') {
+    text = text.split(':')[0].trim();
+  }
+
+  const name = normalizeModxName(text);
+  if (!name || /^\d+$/.test(name)) {
+    return null;
+  }
+  if (type === 'Chunk' && /[$()]|::|->|@/.test(text)) {
+    return null;
+  }
+  return name;
+}
+
+function findModxTagAt(view: EditorView, pos: number): ModxTagMatch | null {
+  const doc = view.state.doc;
+  const start = Math.max(0, pos - 500);
+  const end = Math.min(doc.length, pos + 500);
+  const slice = doc.sliceString(start, end);
+
+  const patterns: Array<{ regex: RegExp; type: ModxTagMatch['type'] }> = [
+    { regex: /`?\[\[[\s\S]*?\]\]/g, type: 'Snippet' },
+    { regex: /`?\[![\s\S]*?!\]/g, type: 'SnippetNoCache' },
+    { regex: /`?\{\{[\s\S]*?\}\}/g, type: 'Chunk' },
+    { regex: /`?\[\*[\s\S]*?\*\]/g, type: 'Tv' },
+    { regex: /`?\[\+[\s\S]*?\+\]/g, type: 'Placeholder' },
+    { regex: /`?\[\([\s\S]*?\)\]/g, type: 'Variable' },
+    { regex: /`?\[~[\s\S]*?~\]/g, type: 'Url' },
+    { regex: /`?\[\^[\s\S]*?\^\]/g, type: 'Config' },
+    { regex: /`[^`\s=]+`/g, type: 'AttributeValue' },
+  ];
+
+  let best: { len: number; raw: string; type: ModxTagMatch['type'] } | null = null;
+
+  for (const pattern of patterns) {
+    pattern.regex.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.regex.exec(slice))) {
+      const from = start + match.index;
+      const to = from + match[0].length;
+      if (pos >= from && pos <= to) {
+        const len = to - from;
+        if (!best || len < best.len) {
+          best = { len, raw: match[0], type: pattern.type };
+        }
+      }
+    }
+  }
+
+  if (!best) {
+    return null;
+  }
+
+  const name = extractModxName(best.raw, best.type);
+  if (!name) {
+    return null;
+  }
+
+  return { type: best.type, name };
+}
+
+function showModxContextMenu(view: EditorView, event: MouseEvent, tag: ModxTagMatch): boolean {
+  const modx = (window as any).modx || (window as any).parent?.modx || (window as any).top?.modx;
+  if (!modx || typeof modx.post !== 'function' || !modx.MODX_MANAGER_URL || !modx.tree?.showPopup) {
+    return false;
+  }
+  if (modx.user && modx.user.role !== 1) {
+    return false;
+  }
+
+  const url = modx.MODX_MANAGER_URL + 'media/style/' + modx.config.theme + '/ajax.php';
+  event.preventDefault();
+
+  modx.post(
+    url,
+    {
+      a: 'modxTagHelper',
+      name: tag.name,
+      type: tag.type,
+    },
+    (response: any) => {
+      if (!response) {
+        return;
+      }
+      let data: string | null = null;
+      try {
+        data = typeof response === 'string' ? response : JSON.stringify(response);
+      } catch (_err) {
+        data = null;
+      }
+      if (!data) {
+        return;
+      }
+      const doc = view.dom.ownerDocument;
+      const anchor = doc.createElement('span');
+      anchor.textContent = tag.name;
+      anchor.dataset.contextmenu = data;
+      anchor.style.position = 'fixed';
+      anchor.style.left = `${event.clientX}px`;
+      anchor.style.top = `${event.clientY}px`;
+      anchor.style.opacity = '0';
+      anchor.style.pointerEvents = 'none';
+      doc.body.appendChild(anchor);
+
+      const fakeEvent: any = {
+        ctrlKey: event.ctrlKey,
+        preventDefault: () => {},
+        target: anchor,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pageX: event.pageX,
+        pageY: event.pageY,
+        view: event.view || window,
+      };
+      modx.tree.showPopup(fakeEvent, Date.now(), tag.name);
+
+      window.setTimeout(() => {
+        anchor.remove();
+      }, 0);
+    }
+  );
+
+  return true;
+}
 
 function normalizeSnippetMap(input: any): Record<string, string> {
   if (!input) {
@@ -217,6 +408,7 @@ function expandSnippetAtCursor(view: EditorView, snippets: Record<string, string
 
 function buildModxDecorations(doc: string) {
   const builder = new RangeSetBuilder<Decoration>();
+  const ranges: Array<{ from: number; to: number; className: string }> = [];
   for (const pattern of modxPatterns) {
     pattern.regex.lastIndex = 0;
     let match: RegExpExecArray | null;
@@ -224,9 +416,17 @@ function buildModxDecorations(doc: string) {
       const from = match.index;
       const to = from + match[0].length;
       if (to > from) {
-        builder.add(from, to, Decoration.mark({ class: pattern.className }));
+        ranges.push({ from, to, className: pattern.className });
       }
     }
+  }
+  ranges.sort((a, b) => {
+    if (a.from !== b.from) return a.from - b.from;
+    if (a.to !== b.to) return a.to - b.to;
+    return a.className < b.className ? -1 : a.className > b.className ? 1 : 0;
+  });
+  for (const range of ranges) {
+    builder.add(range.from, range.to, Decoration.mark({ class: range.className }));
   }
   return builder.finish();
 }
@@ -473,11 +673,28 @@ function buildExtensions(cfg: EditorInitConfig, textarea: HTMLTextAreaElement, o
     history(),
     drawSelection(),
     indentOnInput(),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     closeBrackets(),
     autocompletion(),
     EditorView.contentAttributes.of({
       'data-ecm-context': cfg.context || '',
       'data-ecm-profile': cfg.profile || '',
+    })
+  );
+
+  extensions.push(
+    EditorView.domEventHandlers({
+      contextmenu: (event: MouseEvent, view: EditorView) => {
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos == null) {
+          return false;
+        }
+        const tag = findModxTagAt(view, pos);
+        if (!tag) {
+          return false;
+        }
+        return showModxContextMenu(view, event, tag);
+      },
     })
   );
 
