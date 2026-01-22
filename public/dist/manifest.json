@@ -1,0 +1,12 @@
+{
+  "resources/codemirror/index.ts": {
+    "file": "eCodeMirror.CTDuEhWx.js",
+    "name": "index",
+    "src": "resources/codemirror/index.ts",
+    "isEntry": true
+  },
+  "style.css": {
+    "file": "eCodeMirror.DIaESmpE.css",
+    "src": "style.css"
+  }
+}

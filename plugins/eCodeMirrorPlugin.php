@@ -236,9 +236,47 @@ if (!function_exists('eCodeMirror_renderEditors')) {
             return '';
         }
 
+        $baseDir = MODX_BASE_PATH . 'assets/plugins/eCodeMirror/dist';
         $baseUrl = MODX_SITE_URL . 'assets/plugins/eCodeMirror/dist';
-        $jsPath = MODX_BASE_PATH . 'assets/plugins/eCodeMirror/dist/eCodeMirror.js';
-        $cssPath = MODX_BASE_PATH . 'assets/plugins/eCodeMirror/dist/eCodeMirror.css';
+        $manifestPath = $baseDir . '/manifest.json';
+
+        $jsFile = 'eCodeMirror.js';
+        $cssFile = 'eCodeMirror.css';
+        $useManifest = false;
+
+        if (is_file($manifestPath)) {
+            $manifest = json_decode((string)@file_get_contents($manifestPath), true);
+            if (is_array($manifest)) {
+                foreach ($manifest as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+                    if (!empty($entry['isEntry']) && !empty($entry['file'])) {
+                        $jsFile = $entry['file'];
+                        if (isset($entry['css'][0])) {
+                            $cssFile = $entry['css'][0];
+                        }
+                        $useManifest = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        $jsPath = $baseDir . '/' . $jsFile;
+        $cssPath = $baseDir . '/' . $cssFile;
+
+        if (!is_file($jsPath) || !is_file($cssPath)) {
+            $fallbackJs = $baseDir . '/eCodeMirror.js';
+            $fallbackCss = $baseDir . '/eCodeMirror.css';
+            if (is_file($fallbackJs) && is_file($fallbackCss)) {
+                $jsFile = 'eCodeMirror.js';
+                $cssFile = 'eCodeMirror.css';
+                $jsPath = $fallbackJs;
+                $cssPath = $fallbackCss;
+                $useManifest = false;
+            }
+        }
 
         if (!is_file($jsPath) || !is_file($cssPath)) {
             eCodeMirror_log('Missing eCodeMirror assets. Run vendor:publish for eCodeMirror.');
@@ -247,13 +285,15 @@ if (!function_exists('eCodeMirror_renderEditors')) {
         }
 
         $version = '';
-        $mtime = @filemtime($jsPath);
-        if (is_int($mtime)) {
-            $version = '?v=' . $mtime;
-        } else {
-            $configVersion = $settings['version'] ?? '';
-            if (is_string($configVersion) && $configVersion !== '') {
-                $version = '?v=' . $configVersion;
+        if (!$useManifest) {
+            $mtime = @filemtime($jsPath);
+            if (is_int($mtime)) {
+                $version = '?v=' . $mtime;
+            } else {
+                $configVersion = $settings['version'] ?? '';
+                if (is_string($configVersion) && $configVersion !== '') {
+                    $version = '?v=' . $configVersion;
+                }
             }
         }
 
@@ -266,8 +306,8 @@ if (!function_exists('eCodeMirror_renderEditors')) {
         $output = [];
         if (!defined('ECODEMIRROR_ASSETS')) {
             define('ECODEMIRROR_ASSETS', true);
-            $output[] = '<link rel="stylesheet" href="' . $baseUrl . '/eCodeMirror.css' . $version . '" />';
-            $output[] = '<script src="' . $baseUrl . '/eCodeMirror.js' . $version . '"></script>';
+            $output[] = '<link rel="stylesheet" href="' . $baseUrl . '/' . $cssFile . $version . '" />';
+            $output[] = '<script src="' . $baseUrl . '/' . $jsFile . $version . '"></script>';
         }
 
         $output[] = '<script>window.eCodeMirrorQueue=window.eCodeMirrorQueue||[];window.eCodeMirrorQueue.push(' . $payload . ');</script>';

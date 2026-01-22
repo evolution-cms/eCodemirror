@@ -1,7 +1,7 @@
 import './style.css';
 
 import { EditorState, EditorSelection, RangeSet, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
-import { EditorView, Decoration, ViewPlugin, keymap, highlightActiveLine, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, lineNumbers, highlightActiveLineGutter, gutter, GutterMarker } from '@codemirror/view';
+import { EditorView, Decoration, ViewPlugin, keymap, highlightActiveLine, drawSelection, lineNumbers, highlightActiveLineGutter, gutter, GutterMarker } from '@codemirror/view';
 import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands';
 import { indentOnInput, syntaxHighlighting, bracketMatching, foldGutter, foldKeymap, indentUnit, defaultHighlightStyle } from '@codemirror/language';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
@@ -45,6 +45,8 @@ type EditorInstance = {
 };
 
 const instances = new Map<string, EditorInstance>();
+const pendingConfigs = new Map<string, EditorInitConfig>();
+let observer: MutationObserver | null = null;
 
 const toggleBreakpointEffect = StateEffect.define<number>();
 const breakpointMarker = new (class extends GutterMarker {
@@ -166,6 +168,29 @@ function storageAvailable(): boolean {
   } catch (_err) {
     return false;
   }
+}
+
+const storageSupported = storageAvailable();
+
+function ensureObserver(): void {
+  if (observer || typeof MutationObserver === 'undefined') {
+    return;
+  }
+  observer = new MutationObserver(() => {
+    if (pendingConfigs.size === 0) {
+      return;
+    }
+    const pending = Array.from(pendingConfigs.values());
+    pending.forEach((cfg) => {
+      if (tryMountEditor(cfg)) {
+        pendingConfigs.delete(cfg.id);
+      }
+    });
+  });
+  observer.observe(document.documentElement || document.body, {
+    childList: true,
+    subtree: true,
+  });
 }
 
 function getStored(key: string, enabled: boolean): string | null {
@@ -348,15 +373,15 @@ function buildExtensions(cfg: EditorInitConfig, textarea: HTMLTextAreaElement, o
   extensions.push(
     lineNumbers(),
     highlightActiveLineGutter(),
-    highlightSpecialChars(),
     history(),
     drawSelection(),
-    dropCursor(),
     indentOnInput(),
     closeBrackets(),
     autocompletion(),
-    rectangularSelection(),
-    crosshairCursor()
+    EditorView.contentAttributes.of({
+      'data-ecm-context': cfg.context || '',
+      'data-ecm-profile': cfg.profile || '',
+    })
   );
 
   if (isTruthy(options.lineWrapping)) {
@@ -585,105 +610,116 @@ function init(editors: EditorInitConfig[]) {
     return;
   }
 
-  const canStore = storageAvailable();
-
   editors.forEach((cfg) => {
-    if (!cfg || !cfg.id || !cfg.selector) {
-      return;
+    tryMountEditor(cfg);
+  });
+}
+
+function tryMountEditor(cfg: EditorInitConfig): boolean {
+  if (!cfg || !cfg.id || !cfg.selector) {
+    return false;
+  }
+  if (instances.has(cfg.id)) {
+    return true;
+  }
+
+  const target = document.querySelector(cfg.selector);
+  if (!target) {
+    pendingConfigs.set(cfg.id, cfg);
+    ensureObserver();
+    return false;
+  }
+  if (!isTextarea(target)) {
+    pendingConfigs.delete(cfg.id);
+    return false;
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'ecm-wrapper';
+  target.parentNode?.insertBefore(wrapper, target);
+  wrapper.appendChild(target);
+  target.classList.add('ecm-hidden-textarea');
+
+  let instance: EditorInstance | null = null;
+
+  const onFullscreen = (state?: boolean) => {
+    if (!instance) {
+      return false;
     }
-    if (instances.has(cfg.id)) {
-      return;
+    if (state === false && !instance.fullscreen) {
+      return false;
     }
+    return applyFullscreen(instance, state);
+  };
 
-    const target = document.querySelector(cfg.selector);
-    if (!isTextarea(target)) {
-      return;
-    }
+  const extensions = buildExtensions(cfg, target, onFullscreen);
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'ecm-wrapper';
-    target.parentNode?.insertBefore(wrapper, target);
-    wrapper.appendChild(target);
-    target.classList.add('ecm-hidden-textarea');
-
-    let instance: EditorInstance | null = null;
-
-    const onFullscreen = (state?: boolean) => {
-      if (!instance) {
-        return false;
-      }
-      if (state === false && !instance.fullscreen) {
-        return false;
-      }
-      return applyFullscreen(instance, state);
-    };
-
-    const extensions = buildExtensions(cfg, target, onFullscreen);
-
-    const restored = restoreState(cfg, canStore, target.value);
-    const editorState = EditorState.create({
-      doc: restored.doc,
-      selection: restored.selection,
-      extensions: [
-        ...extensions,
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            target.value = update.state.doc.toString();
-            if (typeof (window as any).documentDirty !== 'undefined') {
-              (window as any).documentDirty = true;
-            }
-            if (instance) {
-              schedulePersist(instance);
-            }
-          } else if (update.selectionSet) {
-            if (instance) {
-              schedulePersist(instance);
-            }
+  const restored = restoreState(cfg, storageSupported, target.value);
+  const editorState = EditorState.create({
+    doc: restored.doc,
+    selection: restored.selection,
+    extensions: [
+      ...extensions,
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          target.value = update.state.doc.toString();
+          if (typeof (window as any).documentDirty !== 'undefined') {
+            (window as any).documentDirty = true;
           }
-        }),
-      ],
+          if (instance) {
+            schedulePersist(instance);
+          }
+        } else if (update.selectionSet) {
+          if (instance) {
+            schedulePersist(instance);
+          }
+        }
+      }),
+    ],
+  });
+
+  target.value = editorState.doc.toString();
+
+  const view = new EditorView({
+    state: editorState,
+    parent: wrapper,
+  });
+
+  instance = {
+    id: cfg.id,
+    view,
+    textarea: target,
+    wrapper,
+    config: cfg,
+    storage: storageSupported,
+    fullscreen: false,
+    saveTimer: null,
+    scrollHandler: null,
+  };
+
+  if (restored.scroll) {
+    requestAnimationFrame(() => {
+      view.scrollDOM.scrollTop = restored.scroll?.top || 0;
+      view.scrollDOM.scrollLeft = restored.scroll?.left || 0;
     });
+  }
 
-    target.value = editorState.doc.toString();
+  const scrollHandler = () => schedulePersist(instance as EditorInstance);
+  instance.scrollHandler = scrollHandler;
+  view.scrollDOM.addEventListener('scroll', scrollHandler, { passive: true });
 
-    const view = new EditorView({
-      state: editorState,
-      parent: wrapper,
-    });
+  instances.set(cfg.id, instance);
+  pendingConfigs.delete(cfg.id);
 
-    instance = {
-      id: cfg.id,
-      view,
-      textarea: target,
-      wrapper,
-      config: cfg,
-      storage: canStore,
-      fullscreen: false,
-      saveTimer: null,
-      scrollHandler: null,
-    };
-
-    if (restored.scroll) {
-      requestAnimationFrame(() => {
-        view.scrollDOM.scrollTop = restored.scroll?.top || 0;
-        view.scrollDOM.scrollLeft = restored.scroll?.left || 0;
-      });
-    }
-
-    const scrollHandler = () => schedulePersist(instance as EditorInstance);
-    instance.scrollHandler = scrollHandler;
-    view.scrollDOM.addEventListener('scroll', scrollHandler, { passive: true });
-
-    instances.set(cfg.id, instance);
-
-    const stateConfig = cfg.state || {};
+  const stateConfig = cfg.state || {};
   if (isTruthy(stateConfig.persist_fullscreen)) {
-    const stored = getStored(`ecm_fullscreen_${cfg.id}`, canStore);
+    const stored = getStored(`ecm_fullscreen_${cfg.id}`, storageSupported);
     if (stored === '1') {
       applyFullscreen(instance, true);
     }
   }
-  });
+
+  return true;
 }
 
 function destroy(id: string) {
