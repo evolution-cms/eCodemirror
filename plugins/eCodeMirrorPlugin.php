@@ -265,8 +265,8 @@ if (!function_exists('eCodeMirror_renderEditors')) {
             return '';
         }
 
-        $baseDir = MODX_BASE_PATH . 'assets/plugins/eCodeMirror/dist';
-        $baseUrl = MODX_SITE_URL . 'assets/plugins/eCodeMirror/dist';
+        $baseDir = EVO_BASE_PATH . 'assets/plugins/eCodeMirror/dist';
+        $baseUrl = EVO_SITE_URL . 'assets/plugins/eCodeMirror/dist';
         $manifestPath = $baseDir . '/manifest.json';
 
         $jsFile = 'eCodeMirror.js';
